@@ -1,0 +1,323 @@
+from PyQt5 import QtWidgets, QtGui
+from threading import *
+import sys
+import time
+
+
+class Window(QtWidgets.QMainWindow):
+
+    def __init__(self, *args, **kwargs):
+        super(Window, self).__init__(*args, **kwargs)
+        self.resize(((app.maze.velikost + app.maze.mezera) * len(app.maze.ctverce)) - app.maze.mezera,
+                    (app.maze.velikost + app.maze.mezera) * len(app.maze.ctverce[0]) + 40)
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout()
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
+
+        button = QtWidgets.QPushButton("START")
+        font = QtGui.QFont("Arial")
+        font.setWeight(75)
+        button.setFont(font)
+        font.setBold(True)
+        button.setStyleSheet("background-color:#b76e79;")
+
+        layout.addStretch()
+        layout.addWidget(button)
+        self.setWindowTitle("MAZE SOLVER")
+        self.setWindowIcon(QtGui.QIcon("robot.jpg"))
+        button.clicked.connect(self.startclick)
+        self.show()
+
+    def startclick(self):
+        app.pruchod.start()
+
+    def paintEvent(self, event):
+        p = QtGui.QPainter(self)
+        velikostsmezerou = app.maze.velikost + app.maze.mezera
+        for j in range(len(app.maze.ctverce[0])):
+            for i in range(len(app.maze.ctverce)):
+                if app.maze.ctverce[i][j] == 0:
+                    # Nastavíme volnou plochu v bludišti
+                    p.drawPixmap(i * velikostsmezerou, j * velikostsmezerou, app.maze.velikost, app.maze.velikost,
+                                 QtGui.QPixmap('square.jpg'))
+                if app.maze.ctverce[i][j] == 1:
+                    # Nastavíme překážku
+                    p.drawPixmap(i * velikostsmezerou, j * velikostsmezerou, app.maze.velikost, app.maze.velikost,
+                                 QtGui.QPixmap('block.jpg'))
+                if app.maze.ctverce[i][j] == 2:
+                    # Nastavíme vybrané políčko
+                    p.drawPixmap(i * velikostsmezerou, j * velikostsmezerou, app.maze.velikost, app.maze.velikost,
+                                 QtGui.QPixmap('empty.jpg'))
+                p.drawPixmap(5 * velikostsmezerou, 4 * velikostsmezerou, app.maze.velikost, app.maze.velikost,
+                             QtGui.QPixmap('start.png'))
+                p.drawPixmap(app.robot.x * velikostsmezerou, app.robot.y * velikostsmezerou, app.maze.velikost,
+                             app.maze.velikost, QtGui.QPixmap('robot.jpg'))
+        p.end()
+
+    def mousePressEvent(self, event):
+        # Naklikávání překážek
+        try:
+            x = int(event.x() / (app.maze.mezera + app.maze.velikost))
+            y = int(event.y() / (app.maze.mezera + app.maze.velikost))
+            if app.maze.ctverce[x][y] == 0:
+                app.maze.ctverce[x][y] = 1
+            else:
+                app.maze.ctverce[x][y] = 0
+        except IndexError:
+            pass
+        self.update()
+
+
+class Maze:
+    # Samotné bludiště s okrajem jedniček
+
+    ctverce = []
+    for i in range(11):
+        temp = []
+        for j in range(8):
+            temp.append(1)
+        ctverce.append(temp)
+    for i in range(1, 10):
+        for j in range(1, 7):
+            ctverce[i][j] = 0
+    ctverce[4][4] = 1
+    ctverce[6][4] = 1
+    velikost = 60
+    mezera = 5
+
+
+class Robot:
+
+    def __init__(self, x, y, rotace):
+        self.x = x
+        self.y = y
+        self.rotace = rotace
+
+    # pole, které si mapuje robot, s okrajem jedniček
+    scan = []
+    for i in range(11):
+        temp = []
+        for j in range(8):
+            temp.append(1)
+        scan.append(temp)
+    for i in range(1, 10):
+        for j in range(1, 7):
+            scan[i][j] = 3
+    scan[4][4] = 1
+    scan[6][4] = 1
+
+    def moveup(self):
+        app.maze.ctverce[app.robot.x][app.robot.y] = 2
+        self.scan[app.robot.x][app.robot.y] = 2
+        self.y = self.y - 1
+        self.rotace = 0
+        app.window.update()
+
+    def moveright(self):
+        app.maze.ctverce[app.robot.x][app.robot.y] = 2
+        self.scan[app.robot.x][app.robot.y] = 2
+        self.x = self.x + 1
+        self.rotace = 1
+        app.window.update()
+
+    def movedown(self):
+        app.maze.ctverce[app.robot.x][app.robot.y] = 2
+        self.scan[app.robot.x][app.robot.y] = 2
+        self.y = self.y + 1
+        self.rotace = 2
+        app.window.update()
+
+    def moveleft(self):
+        app.maze.ctverce[app.robot.x][app.robot.y] = 2
+        self.scan[app.robot.x][app.robot.y] = 2
+        self.x = self.x - 1
+        self.rotace = 3
+        app.window.update()
+
+
+class Pruchod(Thread):
+    rychlost = 0.2
+
+    def surround(self):
+        app.robot.scan[app.robot.x][app.robot.y - 1] = app.maze.ctverce[app.robot.x][app.robot.y - 1]
+        app.robot.scan[app.robot.x + 1][app.robot.y] = app.maze.ctverce[app.robot.x + 1][app.robot.y]
+        app.robot.scan[app.robot.x][app.robot.y + 1] = app.maze.ctverce[app.robot.x][app.robot.y + 1]
+        app.robot.scan[app.robot.x - 1][app.robot.y] = app.maze.ctverce[app.robot.x - 1][app.robot.y]
+
+    def mapuj(self):
+        # Hledaní 0
+        pozicenulyx = []
+        pozicenulyy = []
+        vlna = []
+        for i in range(11):
+            temp = []
+            for j in range(8):
+                temp.append(0)
+            vlna.append(temp)
+        # Naplnění překážek do vlny
+        for i in range(11):
+            for j in range(8):
+                if app.robot.scan[i][j] == 1:
+                    vlna[i][j] = -1
+        vlna[app.robot.x][app.robot.y] = 1
+        # Naplnění volných míst do vlny
+        for i in range(11):
+            for j in range(8):
+                if app.robot.scan[i][j] == 0:
+                    pozicenulyx.append(i)
+                    pozicenulyy.append(j)
+        # target vlny je pole, ve kterém je zakreslen jen cíl, pozice robota a nuly
+        targetvlny = []
+        for i in range(11):
+            temp = []
+            for j in range(8):
+                temp.append(0)
+            targetvlny.append(temp)
+        targetx = pozicenulyx[0]
+        targety = pozicenulyy[0]
+        targetvlny[targetx][targety] = 4
+        currentnumber = 1
+        searchingpath = True
+
+        # Dělání vlny
+        while searchingpath:
+            for i in range(1, 10):
+                for j in range(1, 7):
+                    if vlna[i][j] == currentnumber:
+                        if (i == targetx) and (j == targety) and (targetvlny[i][j] == 4):
+                            searchingpath = False
+                        else:
+                            if vlna[i][j - 1] == 0:
+                                vlna[i][j - 1] = currentnumber + 1
+                            if vlna[i + 1][j] == 0:
+                                vlna[i + 1][j] = currentnumber + 1
+                            if vlna[i][j + 1] == 0:
+                                vlna[i][j + 1] = currentnumber + 1
+                            if vlna[i - 1][j] == 0:
+                                vlna[i - 1][j] = currentnumber + 1
+            currentnumber += 1
+
+        # Hledání cesty
+        searchingpath = True
+        targetvlny[app.robot.x][app.robot.y] = 2
+        currentx = targetx
+        currenty = targety
+        pathx = []
+        pathy = []
+        for i in range(currentnumber - 1):
+            pathx.append(0)
+            pathy.append(0)
+        pathx[currentnumber - 2] = currentx
+        pathy[currentnumber - 2] = currenty
+        # Mapování cesty
+        while searchingpath:
+            for i in range(1, 10):
+                for j in range(1, 7):
+                    if (i == currentx) and (j == currenty):
+                        if (i == app.robot.x) and (j == app.robot.y):
+                            searchingpath = False
+                        else:
+                            if vlna[i][j - 1] == vlna[i][j] - 1:
+                                pathx[vlna[i][j] - 2] = i
+                                pathy[vlna[i][j] - 2] = j - 1
+                                currentx = i
+                                currenty = j - 1
+                            if vlna[i + 1][j] == vlna[i][j] - 1:
+                                pathx[vlna[i][j] - 2] = i + 1
+                                pathy[vlna[i][j] - 2] = j
+                                currentx = i + 1
+                                currenty = j
+                            if vlna[i][j + 1] == vlna[i][j] - 1:
+                                pathx[vlna[i][j] - 2] = i
+                                pathy[vlna[i][j] - 2] = j + 1
+                                currentx = i
+                                currenty = j + 1
+                            if vlna[i - 1][j] == vlna[i][j] - 1:
+                                pathx[vlna[i][j] - 2] = i - 1
+                                pathy[vlna[i][j] - 2] = j
+                                currentx = i - 1
+                                currenty = j
+
+        for i in range(len(pathx) - 1):
+            time.sleep(self.rychlost)
+            self.surround()
+            if pathx[i + 1] - pathx[i] > 0:
+                app.robot.moveright()
+
+            if pathx[i + 1] - pathx[i] < 0:
+                app.robot.moveleft()
+
+            if pathy[i + 1] - pathy[i] > 0:
+                app.robot.movedown()
+
+            if pathy[i + 1] - pathy[i] < 0:
+                app.robot.moveup()
+
+    def run(self):
+        time.sleep(self.rychlost)
+        app.robot.moveup()
+        app.maze.ctverce[5][4] = 1
+        self.surround()
+        while True:
+            while ((app.robot.scan[app.robot.x][app.robot.y - 1] == 0) or (
+                    app.robot.scan[app.robot.x + 1][app.robot.y] == 0)
+                   or (app.robot.scan[app.robot.x][app.robot.y + 1] == 0) or
+                   (app.robot.scan[app.robot.x - 1][app.robot.y] == 0)):
+
+                time.sleep(self.rychlost)
+
+                if app.robot.rotace == 0:
+                    if app.robot.scan[app.robot.x + 1][app.robot.y] == 0:
+                        app.robot.moveright()
+
+                    elif app.robot.scan[app.robot.x][app.robot.y - 1] == 0:
+                        app.robot.moveup()
+                    else:
+                        app.robot.moveleft()
+
+                elif app.robot.rotace == 1:
+                    if app.robot.scan[app.robot.x][app.robot.y + 1] == 0:
+                        app.robot.movedown()
+
+                    elif app.robot.scan[app.robot.x + 1][app.robot.y] == 0:
+                        app.robot.moveright()
+                    else:
+                        app.robot.moveup()
+
+                elif app.robot.rotace == 2:
+                    if app.robot.scan[app.robot.x - 1][app.robot.y] == 0:
+                        app.robot.moveleft()
+
+                    elif app.robot.scan[app.robot.x][app.robot.y + 1] == 0:
+                        app.robot.movedown()
+                    else:
+                        app.robot.moveright()
+
+                elif app.robot.rotace == 3:
+                    if app.robot.scan[app.robot.x][app.robot.y - 1] == 0:
+                        app.robot.moveup()
+
+                    elif app.robot.scan[app.robot.x - 1][app.robot.y] == 0:
+                        app.robot.moveleft()
+                    else:
+                        app.robot.movedown()
+                self.surround()
+
+            app.robot.scan[app.robot.x][app.robot.y] = 2
+            self.mapuj()
+            app.robot.scan[app.robot.x][app.robot.y] = 2
+            self.surround()
+
+
+class App(QtWidgets.QApplication):
+    def build(self):
+        self.maze = Maze()
+        self.window = Window()
+        self.robot = Robot(5, 4, 0)
+        self.pruchod = Pruchod()
+        sys.exit(self.exec_())
+
+
+app = App(sys.argv)
+app.build()
